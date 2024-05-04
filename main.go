@@ -64,7 +64,7 @@ func getRandomAPIKey(apiKeys []string) string {
 	return apiKeys[rand.Intn(len(apiKeys))]
 }
 
-func fetchPlayerData(workerNumber int, tags <-chan string, wg *sync.WaitGroup, apiKeys []string, requestCount *int64) {
+func fetchPlayerData(workerNumber int, tags <-chan string, wg *sync.WaitGroup, apiKeys []string, successRequestCount *int64, notFoundRequestCount *int64, throttledRequestCount *int64) {
 	defer wg.Done()
 	client := &fasthttp.Client{
 		ReadTimeout:  time.Second * 5,
@@ -84,8 +84,17 @@ func fetchPlayerData(workerNumber int, tags <-chan string, wg *sync.WaitGroup, a
 		err := client.Do(req, resp)
 		if err != nil {
 			log.Printf("Error with tag %s - %v\n", tag, err)
-		}	else {
-			*requestCount++
+		}
+
+		switch resp.StatusCode() {
+		case 200:
+			*successRequestCount++
+		case 404:
+			*notFoundRequestCount++
+		case 429:
+			*throttledRequestCount++
+		default:
+			log.Printf("Worker %d - Tag %s - Status code: %d", workerNumber, tag, resp.StatusCode())
 		}
 
 		fasthttp.ReleaseRequest(req)
@@ -124,10 +133,13 @@ func main() {
 	workerGroup.Add(config.Workers)
 
 	start := time.Now()
-	var requestCount int64
+	var successRequestCount int64
+	var notFoundRequestCount int64
+	var throttledRequestCount int64
+
 	for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
 		log.Printf("Starting worker %d", workerNumber)
-		go fetchPlayerData(workerNumber, playerTagsChunk, workerGroup, config.COCApiKeys, &requestCount)
+		go fetchPlayerData(workerNumber, playerTagsChunk, workerGroup, config.COCApiKeys, &successRequestCount, & notFoundRequestCount, &throttledRequestCount)
 	}
 
 	workerGroup.Wait()
@@ -136,7 +148,9 @@ func main() {
 	runtime.ReadMemStats(&memStats)
 
 	elapsed := time.Since(start)
-	log.Printf("Total requests: %d", requestCount)
+	log.Printf("Total success requests: %d", successRequestCount)
+	log.Printf("Total not found requests: %d", notFoundRequestCount)
+	log.Printf("Total throttled requests: %d", throttledRequestCount)
 	log.Printf("Total time taken: %s", elapsed)
 	log.Printf("Memory usage: %d bytes", memStats.Alloc)
 }
