@@ -13,16 +13,14 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v11"
+	"github.com/goccy/go-json"
 	"github.com/joho/godotenv"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/redis/go-redis/v9"
 )
 
 const (
 	cocAPIURL string = "https://api.clashofclans.com/v1/players/%s"
 )
-
-var json = jsoniter.ConfigFastest
 
 // Config struct
 type Config struct {
