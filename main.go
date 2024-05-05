@@ -103,8 +103,6 @@ func fetchPlayerData(
 	apiKeyIndex := workerNumber
 
 	for tag := range tags {
-		log.Printf("Worker %d processing tag %s", workerNumber, tag)
-
 		requestURL := strings.Replace(fmt.Sprintf(cocAPIURL, tag), "#", "%23", 1)
 		req, _ := http.NewRequest("GET", requestURL, nil)
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", getIncrementalAPIKey(apiKeys, &apiKeyIndex)))
@@ -112,10 +110,10 @@ func fetchPlayerData(
 		resp, err := client.Do(req)
 		if err != nil {
 			log.Printf("Error with tag %s - %v\n", tag, err)
-		} else {
-			defer resp.Body.Close()
+			continue
 		}
 
+		defer resp.Body.Close()
 		switch resp.StatusCode {
 		case 200:
 			body, err := io.ReadAll(resp.Body)
