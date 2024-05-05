@@ -75,7 +75,15 @@ func getIncrementalAPIKey(apiKeys []string, apiKeyIndex *int) string {
 	return apiKey
 }
 
-func fetchPlayerData(workerNumber int, tags <-chan string, wg *sync.WaitGroup, apiKeys []string, successRequestCount *int64, notFoundRequestCount *int64, throttledRequestCount *int64) {
+func fetchPlayerData(
+	workerNumber int,
+	tags <-chan string,
+	wg *sync.WaitGroup,
+	apiKeys []string,
+	successRequestCount *int64,
+	notFoundRequestCount *int64,
+	throttledRequestCount *int64,
+) {
 	defer wg.Done()
 	client := &fasthttp.Client{
 		ReadTimeout:  time.Second * 5,
@@ -152,7 +160,15 @@ func main() {
 
 	for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
 		log.Printf("Starting worker %d", workerNumber)
-		go fetchPlayerData(workerNumber, playerTagsChunk, workerGroup, config.COCApiKeys, &successRequestCount, &notFoundRequestCount, &throttledRequestCount)
+		go fetchPlayerData(
+			workerNumber,
+			playerTagsChunk,
+			workerGroup,
+			config.COCApiKeys,
+			&successRequestCount,
+			&notFoundRequestCount,
+			&throttledRequestCount,
+		)
 	}
 
 	workerGroup.Wait()
