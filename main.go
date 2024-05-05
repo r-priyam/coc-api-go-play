@@ -44,13 +44,16 @@ func loadPlayerTags(filePath string) ([]string, error) {
 		return nil, err
 	}
 
-	var players []Player
+	var (
+		players    []Player
+		playerTags []string
+	)
+
 	err = json.Unmarshal(byteValue, &players)
 	if err != nil {
 		return nil, err
 	}
 
-	var playerTags []string
 	for _, player := range players {
 		playerTags = append(playerTags, player.Tag)
 	}
@@ -154,9 +157,12 @@ func main() {
 	workerGroup.Add(config.Workers)
 
 	start := time.Now()
-	var successRequestCount int64
-	var notFoundRequestCount int64
-	var throttledRequestCount int64
+	var (
+		successRequestCount   int64
+		notFoundRequestCount  int64
+		throttledRequestCount int64
+		memStats              runtime.MemStats
+	)
 
 	for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
 		log.Printf("Starting worker %d", workerNumber)
@@ -173,7 +179,6 @@ func main() {
 
 	workerGroup.Wait()
 
-	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
 	elapsed := time.Since(start)
