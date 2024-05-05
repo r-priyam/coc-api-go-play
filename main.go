@@ -12,10 +12,9 @@ import (
 	"sync"
 	"time"
 
-	jsoniter "github.com/json-iterator/go"
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
-	"github.com/ohler55/ojg/oj"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/redis/go-redis/v9"
 	"github.com/valyala/fasthttp"
 )
@@ -23,6 +22,8 @@ import (
 const (
 	cocAPIURL string = "https://api.clashofclans.com/v1/players/%s"
 )
+
+var json = jsoniter.ConfigFastest
 
 // Config struct
 type Config struct {
@@ -54,7 +55,7 @@ func loadPlayerTags(filePath string) ([]string, error) {
 		playerTags []string
 	)
 
-	err = oj.Unmarshal(byteValue, &players)
+	err = json.Unmarshal(byteValue, &players)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +104,6 @@ func fetchPlayerData(
 	log.Printf("Worker %d started with process ID: %d", workerNumber, processID)
 
 	apiKeyIndex := workerNumber
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 	for tag := range tags {
 		log.Printf("Worker %d processing tag %s", workerNumber, tag)
