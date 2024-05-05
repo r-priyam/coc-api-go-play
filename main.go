@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -113,9 +112,8 @@ func fetchPlayerData(
 			continue
 		}
 
-		defer resp.Body.Close()
 		switch resp.StatusCode {
-		case 200:
+		case http.StatusOK:
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				log.Fatal("Error reading response body: ", err)
@@ -133,9 +131,9 @@ func fetchPlayerData(
 			}
 
 			*successRequestCount++
-		case 404:
+		case http.StatusNotFound:
 			*notFoundRequestCount++
-		case 429:
+		case http.StatusTooManyRequests:
 			*throttledRequestCount++
 		default:
 			log.Printf("Worker %d - Tag %s - Status code: %d", workerNumber, tag, resp.StatusCode)
@@ -179,7 +177,6 @@ func main() {
 		successRequestCount   int64
 		notFoundRequestCount  int64
 		throttledRequestCount int64
-		memStats              runtime.MemStats
 	)
 
 	redis := redis.NewClient(&redis.Options{
@@ -209,12 +206,9 @@ func main() {
 
 	workerGroup.Wait()
 
-	runtime.ReadMemStats(&memStats)
-
 	elapsed := time.Since(start)
 	log.Printf("Total success requests: %d", successRequestCount)
 	log.Printf("Total not found requests: %d", notFoundRequestCount)
 	log.Printf("Total throttled requests: %d", throttledRequestCount)
 	log.Printf("Total time taken: %s", elapsed)
-	log.Printf("Memory usage: %d bytes", memStats.Alloc)
 }
