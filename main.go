@@ -4,7 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"runtime"
@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	COCApiURL = "https://api.clashofclans.com/v1/players/%s"
+	cocAPIURL string = "https://api.clashofclans.com/v1/players/%s"
 )
 
 // Config struct
@@ -39,7 +39,7 @@ func loadPlayerTags(filePath string) ([]string, error) {
 	}
 	defer file.Close()
 
-	byteValue, err := ioutil.ReadAll(file)
+	byteValue, err := io.ReadAll(file)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,12 @@ func loadPlayerTags(filePath string) ([]string, error) {
 	return playerTags, nil
 }
 
-func getRandomAPIKey(apiKeys []string, apiKeyIndex *int) string {
+func getIncrementalAPIKey(apiKeys []string, apiKeyIndex *int) string {
+	// If the index is out of range, reset it to 0
+	if len(apiKeys) < *apiKeyIndex {
+		*apiKeyIndex = 0
+	}
+
 	apiKey := apiKeys[*apiKeyIndex]
 
 	if *apiKeyIndex+1 >= len(apiKeys) {
@@ -85,8 +90,8 @@ func fetchPlayerData(workerNumber int, tags <-chan string, wg *sync.WaitGroup, a
 		log.Printf("Worker %d processing tag %s", workerNumber, tag)
 
 		req := fasthttp.AcquireRequest()
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", getRandomAPIKey(apiKeys, &apiKeyIndex)))
-		req.SetRequestURI(fmt.Sprintf(COCApiURL, tag))
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", getIncrementalAPIKey(apiKeys, &apiKeyIndex)))
+		req.SetRequestURI(fmt.Sprintf(cocAPIURL, tag))
 
 		resp := fasthttp.AcquireResponse()
 		err := client.Do(req, resp)
