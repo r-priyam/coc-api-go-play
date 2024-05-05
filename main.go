@@ -79,7 +79,7 @@ func fetchPlayerData(workerNumber int, tags <-chan string, wg *sync.WaitGroup, a
 	processID := os.Getpid()
 	log.Printf("Worker %d started with process ID: %d", workerNumber, processID)
 
-	apiKeyIndex := 0
+	apiKeyIndex := workerNumber
 
 	for tag := range tags {
 		log.Printf("Worker %d processing tag %s", workerNumber, tag)
