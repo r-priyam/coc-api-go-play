@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"github.com/joho/godotenv"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/redis/go-redis/v9"
-	"github.com/valyala/fasthttp"
 )
 
 const (
@@ -86,6 +86,7 @@ func getIncrementalAPIKey(apiKeys []string, apiKeyIndex *int) string {
 
 func fetchPlayerData(
 	ctx context.Context,
+	client *http.Client,
 	workerNumber int,
 	tags <-chan string,
 	wg *sync.WaitGroup,
@@ -96,10 +97,6 @@ func fetchPlayerData(
 	throttledRequestCount *int64,
 ) {
 	defer wg.Done()
-	client := &fasthttp.Client{
-		ReadTimeout:  time.Second * 5,
-		WriteTimeout: time.Second * 5,
-	}
 	processID := os.Getpid()
 	log.Printf("Worker %d started with process ID: %d", workerNumber, processID)
 
@@ -108,22 +105,27 @@ func fetchPlayerData(
 	for tag := range tags {
 		log.Printf("Worker %d processing tag %s", workerNumber, tag)
 
-		req := fasthttp.AcquireRequest()
+		requestURL := strings.Replace(fmt.Sprintf(cocAPIURL, tag), "#", "%23", 1)
+		req, _ := http.NewRequest("GET", requestURL, nil)
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", getIncrementalAPIKey(apiKeys, &apiKeyIndex)))
-		req.SetRequestURI(strings.Replace(fmt.Sprintf(cocAPIURL, tag), "#", "%23", 1))
 
-		resp := fasthttp.AcquireResponse()
-		err := client.Do(req, resp)
+		resp, err := client.Do(req)
 		if err != nil {
 			log.Printf("Error with tag %s - %v\n", tag, err)
+		} else {
+			defer resp.Body.Close()
 		}
 
-		switch resp.StatusCode() {
+		switch resp.StatusCode {
 		case 200:
-			var playerData PlayerStruct
-			err = json.Unmarshal(resp.Body(), &playerData)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				log.Printf("Error parsin JSON: %v", err)
+				log.Fatal("Error reading response body: ", err)
+			}
+
+			var playerData PlayerStruct
+			if err := json.Unmarshal(body, &playerData); err != nil {
+				log.Fatal("Error parsing response: ", err)
 			}
 
 			playerDataJSON, _ := json.Marshal(playerData)
@@ -138,11 +140,8 @@ func fetchPlayerData(
 		case 429:
 			*throttledRequestCount++
 		default:
-			log.Printf("Worker %d - Tag %s - Status code: %d", workerNumber, tag, resp.StatusCode())
+			log.Printf("Worker %d - Tag %s - Status code: %d", workerNumber, tag, resp.StatusCode)
 		}
-
-		fasthttp.ReleaseRequest(req)
-		fasthttp.ReleaseResponse(resp)
 	}
 }
 
@@ -190,10 +189,15 @@ func main() {
 		DB:   0,
 	})
 
+	client := &http.Client{
+		Timeout: time.Second * 10,
+	}
+
 	for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
 		log.Printf("Starting worker %d", workerNumber)
 		go fetchPlayerData(
 			ctx,
+			client,
 			workerNumber,
 			playerTagsChunk,
 			workerGroup,
