@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
+	"github.com/ohler55/ojg/oj"
 	"github.com/redis/go-redis/v9"
 	"github.com/valyala/fasthttp"
 )
@@ -52,7 +52,7 @@ func loadPlayerTags(filePath string) ([]string, error) {
 		playerTags []string
 	)
 
-	err = json.Unmarshal(byteValue, &players)
+	err = oj.Unmarshal(byteValue, &players)
 	if err != nil {
 		return nil, err
 	}
@@ -118,12 +118,12 @@ func fetchPlayerData(
 		switch resp.StatusCode() {
 		case 200:
 			var playerData PlayerStruct
-			err = json.Unmarshal(resp.Body(), &playerData)
+			err = oj.Unmarshal(resp.Body(), &playerData)
 			if err != nil {
 				log.Printf("Error parsin JSON: %v", err)
 			}
 
-			playerDataJSON, _ := json.Marshal(playerData)
+			playerDataJSON, _ := oj.Marshal(playerData)
 			_, err = redisClient.Set(ctx, playerData.Tag, playerDataJSON, 0).Result()
 			if err != nil {
 				log.Printf("Redis error setting data for tag %s: %v", tag, err)
