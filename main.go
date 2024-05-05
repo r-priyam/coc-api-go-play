@@ -27,6 +27,7 @@ const (
 type Config struct {
 	COCApiKeys     []string `env:"COC_API_KEYS" envSeparator:","`
 	PlayerTagsFile string   `env:"PLAYER_TAGS_FILE"`
+	RedisURL       string   `env:"REDIS_URL" envDefault:"127.0.0.1:6379"`
 	Workers        int      `env:"WORKERS" envDefault:"4"`
 }
 
@@ -183,7 +184,7 @@ func main() {
 	)
 
 	redis := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
+		Addr: config.RedisURL,
 		DB:   0,
 	})
 
