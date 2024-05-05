@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime/pprof"
+	"runtime/trace"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +27,8 @@ const (
 // Config struct
 type Config struct {
 	COCApiKeys     []string `env:"COC_API_KEYS" envSeparator:","`
+	EnableCPUPprof bool     `env:"ENABLE_CPU_PPROF" envDefault:"false"`
+	EnableTrace    bool     `env:"ENABLE_TRACE" envDefault:"false"`
 	PlayerTagsFile string   `env:"PLAYER_TAGS_FILE"`
 	RedisURL       string   `env:"REDIS_URL" envDefault:"127.0.0.1:6379"`
 	Workers        int      `env:"WORKERS" envDefault:"4"`
@@ -151,6 +155,32 @@ func main() {
 	err = env.Parse(&config)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if config.EnableCPUPprof {
+		f, err := os.Create("profile.prof")
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+
+		if err := pprof.StartCPUProfile(f); err != nil {
+			panic(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	if config.EnableTrace {
+		traceFile, err := os.Create("trace.out")
+		if err != nil {
+			panic(err)
+		}
+		defer traceFile.Close()
+
+		if err := trace.Start(traceFile); err != nil {
+			panic(err)
+		}
+		defer trace.Stop()
 	}
 
 	// Load player tags from file
