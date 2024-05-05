@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	jsoniter "github.com/json-iterator/go"
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
 	"github.com/ohler55/ojg/oj"
@@ -67,7 +68,7 @@ func loadPlayerTags(filePath string) ([]string, error) {
 
 func getIncrementalAPIKey(apiKeys []string, apiKeyIndex *int) string {
 	// If the index is out of range, reset it to 0
-	if len(apiKeys) < *apiKeyIndex {
+	if len(apiKeys) <= *apiKeyIndex {
 		*apiKeyIndex = 0
 	}
 
@@ -102,6 +103,7 @@ func fetchPlayerData(
 	log.Printf("Worker %d started with process ID: %d", workerNumber, processID)
 
 	apiKeyIndex := workerNumber
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 	for tag := range tags {
 		log.Printf("Worker %d processing tag %s", workerNumber, tag)
@@ -119,12 +121,12 @@ func fetchPlayerData(
 		switch resp.StatusCode() {
 		case 200:
 			var playerData PlayerStruct
-			err = oj.Unmarshal(resp.Body(), &playerData)
+			err = json.Unmarshal(resp.Body(), &playerData)
 			if err != nil {
 				log.Printf("Error parsin JSON: %v", err)
 			}
 
-			playerDataJSON, _ := oj.Marshal(playerData)
+			playerDataJSON, _ := json.Marshal(playerData)
 			_, err = redisClient.Set(ctx, playerData.Tag, playerDataJSON, 0).Result()
 			if err != nil {
 				log.Printf("Redis error setting data for tag %s: %v", tag, err)
@@ -145,7 +147,7 @@ func fetchPlayerData(
 }
 
 func main() {
-	// Load .env file
+	// Load .env file˝
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
