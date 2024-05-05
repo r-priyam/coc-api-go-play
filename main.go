@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"os"
 	"runtime"
 	"sync"
@@ -59,25 +58,34 @@ func loadPlayerTags(filePath string) ([]string, error) {
 	return playerTags, nil
 }
 
-func getRandomAPIKey(apiKeys []string) string {
-	rand.Seed(time.Now().UnixNano())
-	return apiKeys[rand.Intn(len(apiKeys))]
+func getRandomAPIKey(apiKeys []string, apiKeyIndex *int) string {
+	apiKey := apiKeys[*apiKeyIndex]
+
+	if *apiKeyIndex+1 >= len(apiKeys) {
+		*apiKeyIndex = 0
+	} else {
+		*apiKeyIndex++
+	}
+
+	return apiKey
 }
 
 func fetchPlayerData(workerNumber int, tags <-chan string, wg *sync.WaitGroup, apiKeys []string, successRequestCount *int64, notFoundRequestCount *int64, throttledRequestCount *int64) {
 	defer wg.Done()
 	client := &fasthttp.Client{
 		ReadTimeout:  time.Second * 5,
-    WriteTimeout: time.Second * 5,
+		WriteTimeout: time.Second * 5,
 	}
 	processID := os.Getpid()
 	log.Printf("Worker %d started with process ID: %d", workerNumber, processID)
+
+	apiKeyIndex := 0
 
 	for tag := range tags {
 		log.Printf("Worker %d processing tag %s", workerNumber, tag)
 
 		req := fasthttp.AcquireRequest()
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", getRandomAPIKey(apiKeys)))
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", getRandomAPIKey(apiKeys, &apiKeyIndex)))
 		req.SetRequestURI(fmt.Sprintf(COCApiURL, tag))
 
 		resp := fasthttp.AcquireResponse()
@@ -139,7 +147,7 @@ func main() {
 
 	for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
 		log.Printf("Starting worker %d", workerNumber)
-		go fetchPlayerData(workerNumber, playerTagsChunk, workerGroup, config.COCApiKeys, &successRequestCount, & notFoundRequestCount, &throttledRequestCount)
+		go fetchPlayerData(workerNumber, playerTagsChunk, workerGroup, config.COCApiKeys, &successRequestCount, &notFoundRequestCount, &throttledRequestCount)
 	}
 
 	workerGroup.Wait()
