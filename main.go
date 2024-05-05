@@ -2,17 +2,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"github.com/valyala/fasthttp"
 )
 
@@ -79,9 +82,11 @@ func getIncrementalAPIKey(apiKeys []string, apiKeyIndex *int) string {
 }
 
 func fetchPlayerData(
+	ctx context.Context,
 	workerNumber int,
 	tags <-chan string,
 	wg *sync.WaitGroup,
+	redisClient *redis.Client,
 	apiKeys []string,
 	successRequestCount *int64,
 	notFoundRequestCount *int64,
@@ -102,7 +107,7 @@ func fetchPlayerData(
 
 		req := fasthttp.AcquireRequest()
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", getIncrementalAPIKey(apiKeys, &apiKeyIndex)))
-		req.SetRequestURI(fmt.Sprintf(cocAPIURL, tag))
+		req.SetRequestURI(strings.Replace(fmt.Sprintf(cocAPIURL, tag), "#", "%23", 1))
 
 		resp := fasthttp.AcquireResponse()
 		err := client.Do(req, resp)
@@ -112,6 +117,18 @@ func fetchPlayerData(
 
 		switch resp.StatusCode() {
 		case 200:
+			var playerData PlayerStruct
+			err = json.Unmarshal(resp.Body(), &playerData)
+			if err != nil {
+				log.Printf("Error parsin JSON: %v", err)
+			}
+
+			playerDataJSON, _ := json.Marshal(playerData)
+			_, err = redisClient.Set(ctx, playerData.Tag, playerDataJSON, 0).Result()
+			if err != nil {
+				log.Printf("Redis error setting data for tag %s: %v", tag, err)
+			}
+
 			*successRequestCount++
 		case 404:
 			*notFoundRequestCount++
@@ -158,18 +175,26 @@ func main() {
 
 	start := time.Now()
 	var (
+		ctx                   = context.Background()
 		successRequestCount   int64
 		notFoundRequestCount  int64
 		throttledRequestCount int64
 		memStats              runtime.MemStats
 	)
 
+	redis := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		DB:   0,
+	})
+
 	for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
 		log.Printf("Starting worker %d", workerNumber)
 		go fetchPlayerData(
+			ctx,
 			workerNumber,
 			playerTagsChunk,
 			workerGroup,
+			redis,
 			config.COCApiKeys,
 			&successRequestCount,
 			&notFoundRequestCount,
