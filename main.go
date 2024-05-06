@@ -7,10 +7,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime/pprof"
 	"runtime/trace"
-	"strings"
 	"sync"
 	"time"
 
@@ -104,7 +104,7 @@ func fetchPlayerData(
 	apiKeyIndex := workerNumber
 
 	for tag := range tags {
-		requestURL := strings.Replace(fmt.Sprintf(cocAPIURL, tag), "#", "%23", 1)
+		requestURL := fmt.Sprintf(cocAPIURL, url.QueryEscape(tag))
 		req, _ := http.NewRequest("GET", requestURL, nil)
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", getIncrementalAPIKey(apiKeys, &apiKeyIndex)))
 
