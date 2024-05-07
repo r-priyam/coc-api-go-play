@@ -260,11 +260,11 @@ func main() {
 	}
 
 	// Load player tags from file
-	playerTags, err := loadPlayerTagChunks(config.PlayerTagsFile)
+	playerTagChunks, err := loadPlayerTagChunks(config.PlayerTagsFile)
 	if err != nil {
 		log.Fatalf("Failed to load player tags: %v", err)
 	}
-	log.Print("Player tags loaded successfully. Total tags: ", len(playerTags))
+	log.Print("Player tags loaded successfully.")
 
 	start := time.Now()
 	var (
@@ -285,7 +285,7 @@ func main() {
 	}
 
 	workerGroup := &sync.WaitGroup{}
-	for _, playerTagChunk := range playerTags {
+	for _, playerTagChunk := range playerTagChunks {
 		workerGroup.Add(config.Workers)
 
 		playerTagsChunk := make(chan string, len(playerTagChunk))
