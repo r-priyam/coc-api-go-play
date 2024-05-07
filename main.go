@@ -285,8 +285,6 @@ func main() {
 	}
 
 	workerGroup := &sync.WaitGroup{}
-	workerGroup.Add(config.Workers)
-
 	for _, playerTagChunk := range playerTags {
 		workerGroup.Add(config.Workers)
 
