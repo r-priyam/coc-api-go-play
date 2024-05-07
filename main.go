@@ -35,7 +35,7 @@ type Config struct {
 	PlayerTagsFile string   `env:"PLAYER_TAGS_FILE"`
 	RedisURL       string   `env:"REDIS_URL" envDefault:"127.0.0.1:6379"`
 	Workers        int      `env:"WORKERS" envDefault:"4"`
-	MongoDbUrl     string   `env:"MONGODB_URL"`
+	MongoDbURL     string   `env:"MONGODB_URL"`
 }
 
 // Player struct
@@ -99,7 +99,7 @@ func fetchPlayerData(
 	tags <-chan string,
 	wg *sync.WaitGroup,
 	redisClient *redis.Client,
-	models *[]mongo.WriteModel,
+	mongoClient *mongo.Client,
 	apiKeys []string,
 	successRequestCount *int64,
 	notFoundRequestCount *int64,
@@ -109,6 +109,7 @@ func fetchPlayerData(
 	processID := os.Getpid()
 	log.Printf("Worker %d started with process ID: %d", workerNumber, processID)
 
+	var models = []mongo.WriteModel{}
 	apiKeyIndex := workerNumber
 
 	for tag := range tags {
@@ -134,7 +135,11 @@ func fetchPlayerData(
 				log.Fatal("Error parsing response: ", err)
 			}
 
-			val, _ := redisClient.Get(ctx, playerData.Tag).Result()
+			val, err := redisClient.Get(ctx, playerData.Tag).Result()
+			if err != nil && err != redis.Nil {
+				log.Printf("Redis error getting data for tag %s: %v", tag, err)
+			}
+
 			if val != "" && playerData.Trophies >= 5000 {
 				var cached PlayerStruct
 				if err := json.Unmarshal([]byte(val), &cached); err != nil {
@@ -156,8 +161,8 @@ func fetchPlayerData(
 						},
 					}
 
-					*models = append(
-						*models,
+					models = append(
+						models,
 						mongo.NewUpdateOneModel().
 							SetFilter(bson.D{{Key: "tag", Value: cached.Tag}}).
 							SetUpdate(
@@ -187,6 +192,21 @@ func fetchPlayerData(
 		default:
 			log.Printf("Worker %d - Tag %s - Status code: %d", workerNumber, tag, resp.StatusCode)
 		}
+	}
+
+	mongoStart := time.Now()
+	log.Printf("Bulk inserting %v items", len(models))
+
+	if len(models) > 0 {
+		opts := options.BulkWrite().SetOrdered(false)
+		collection := mongoClient.Database("db").Collection("legend_attacks")
+
+		_, bulkErr := collection.BulkWrite(context.TODO(), models, opts)
+
+		if bulkErr != nil {
+			log.Fatal(bulkErr)
+		}
+		log.Printf("Bulk inserted in %v", time.Since(mongoStart))
 	}
 }
 
@@ -253,13 +273,12 @@ func main() {
 		notFoundRequestCount  int64
 		throttledRequestCount int64
 	)
-	models := []mongo.WriteModel{}
 
 	redis := redis.NewClient(&redis.Options{
 		Addr: config.RedisURL,
 		DB:   0,
 	})
-	mongo := MongoClient(config.MongoDbUrl)
+	mongo := MongoClient(config.MongoDbURL)
 
 	client := &http.Client{
 		Timeout: time.Second * 10,
@@ -274,7 +293,7 @@ func main() {
 			playerTagsChunk,
 			workerGroup,
 			redis,
-			&models,
+			mongo,
 			config.COCApiKeys,
 			&successRequestCount,
 			&notFoundRequestCount,
@@ -283,19 +302,6 @@ func main() {
 	}
 
 	workerGroup.Wait()
-
-	mongoStart := time.Now()
-	log.Printf("Bulk inserting %v items", len(models))
-
-	if len(models) > 0 {
-		opts := options.BulkWrite().SetOrdered(false)
-		collection := mongo.Database("db").Collection("legend_attacks")
-		_, bulkErr := collection.BulkWrite(context.TODO(), models, opts)
-		if bulkErr != nil {
-			log.Fatal(err)
-		}
-		log.Printf("Bulk inserted %v", time.Since(mongoStart))
-	}
 
 	elapsed := time.Since(start)
 	log.Printf("Total success requests: %d", successRequestCount)
