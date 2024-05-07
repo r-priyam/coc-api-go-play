@@ -22,3 +22,5 @@ go.work
 
 # Ignore env file
 *.env
+
+*.json

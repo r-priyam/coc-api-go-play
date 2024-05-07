@@ -1,0 +1,30 @@
+version: "3.6"
+
+services:
+  redis-stack:
+    container_name: redis-stack
+    image: redis/redis-stack-server:latest
+    restart: always
+    mem_limit: '2g'
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - 'redis-data-volume:/data'
+
+  mongodb:
+    container_name: mongodb
+    image: mongodb:latest
+    restart: always
+    ports:
+      - 27017:27017
+    volumes:
+      - 'mongodb-data:/data/db'
+      - 'mongodb-config:/data/configdb'
+
+volumes:
+  redis-data-volume:
+    name: redis-data-volume
+  mongodb-data:
+    name: mongodb-data
+  mongodb-config:
+    name: mongodb-config

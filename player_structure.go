@@ -6,6 +6,7 @@ type PlayerStruct struct {
 	Name                    string `json:"name"`
 	ExpLevel                int    `json:"expLevel"`
 	Trophies                int    `json:"trophies"`
+	AttackWins              int    `json:"attackWins"`
 	BestTrophies            int    `json:"bestTrophies"`
 	Donations               int    `json:"donations"`
 	DonationsReceived       int    `json:"donationsReceived"`
