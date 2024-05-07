@@ -11,6 +11,20 @@ services:
     volumes:
       - 'redis-data-volume:/data'
 
+  mongodb:
+    container_name: mongodb
+    image: mongodb:latest
+    restart: always
+    ports:
+      - 27017:27017
+    volumes:
+      - 'mongodb-data:/data/db'
+      - 'mongodb-config:/data/configdb'
+
 volumes:
   redis-data-volume:
     name: redis-data-volume
+  mongodb-data:
+    name: mongodb-data
+  mongodb-config:
+    name: mongodb-config
