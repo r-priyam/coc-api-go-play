@@ -43,7 +43,7 @@ type Player struct {
 	Tag string `json:"tag"`
 }
 
-func loadPlayerTags(filePath string) ([]string, error) {
+func loadPlayerTagChunks(filePath string) ([][]string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -56,9 +56,12 @@ func loadPlayerTags(filePath string) ([]string, error) {
 	}
 
 	var (
-		players    []Player
-		playerTags []string
+		players         []Player
+		playerTags      []string
+		playerTagChunks [][]string
 	)
+
+	const chunkSize = 50000
 
 	err = json.Unmarshal(byteValue, &players)
 	if err != nil {
@@ -66,13 +69,19 @@ func loadPlayerTags(filePath string) ([]string, error) {
 	}
 
 	for _, player := range players {
-		// if len(playerTags) >= 100000 {
-		// 	break
-		// }
 		playerTags = append(playerTags, player.Tag)
+
+		if len(playerTags) == chunkSize {
+			playerTagChunks = append(playerTagChunks, playerTags)
+			playerTags = []string{}
+		}
 	}
 
-	return playerTags, nil
+	if len(playerTags) > 0 {
+		playerTagChunks = append(playerTagChunks, playerTags)
+	}
+
+	return playerTagChunks, nil
 }
 
 func getIncrementalAPIKey(apiKeys []string, apiKeyIndex *int) string {
@@ -251,20 +260,11 @@ func main() {
 	}
 
 	// Load player tags from file
-	playerTags, err := loadPlayerTags(config.PlayerTagsFile)
+	playerTags, err := loadPlayerTagChunks(config.PlayerTagsFile)
 	if err != nil {
 		log.Fatalf("Failed to load player tags: %v", err)
 	}
 	log.Print("Player tags loaded successfully. Total tags: ", len(playerTags))
-
-	playerTagsChunk := make(chan string, len(playerTags))
-	for _, tag := range playerTags {
-		playerTagsChunk <- tag
-	}
-	close(playerTagsChunk)
-
-	workerGroup := &sync.WaitGroup{}
-	workerGroup.Add(config.Workers)
 
 	start := time.Now()
 	var (
@@ -284,21 +284,35 @@ func main() {
 		Timeout: time.Second * 10,
 	}
 
-	for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
-		log.Printf("Starting worker %d", workerNumber)
-		go fetchPlayerData(
-			ctx,
-			client,
-			workerNumber,
-			playerTagsChunk,
-			workerGroup,
-			redis,
-			mongo,
-			config.COCApiKeys,
-			&successRequestCount,
-			&notFoundRequestCount,
-			&throttledRequestCount,
-		)
+	workerGroup := &sync.WaitGroup{}
+	workerGroup.Add(config.Workers)
+
+	for _, playerTagChunk := range playerTags {
+		workerGroup.Add(config.Workers)
+
+		playerTagsChunk := make(chan string, len(playerTagChunk))
+		for _, tag := range playerTagChunk {
+			playerTagsChunk <- tag
+		}
+		close(playerTagsChunk)
+
+		for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
+			log.Printf("Starting worker %d", workerNumber)
+			go fetchPlayerData(
+				ctx,
+				client,
+				workerNumber,
+				playerTagsChunk,
+				workerGroup,
+				redis,
+				mongo,
+				config.COCApiKeys,
+				&successRequestCount,
+				&notFoundRequestCount,
+				&throttledRequestCount,
+			)
+		}
+
 	}
 
 	workerGroup.Wait()
