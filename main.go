@@ -18,6 +18,9 @@ import (
 	"github.com/goccy/go-json"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 const (
@@ -32,6 +35,7 @@ type Config struct {
 	PlayerTagsFile string   `env:"PLAYER_TAGS_FILE"`
 	RedisURL       string   `env:"REDIS_URL" envDefault:"127.0.0.1:6379"`
 	Workers        int      `env:"WORKERS" envDefault:"4"`
+	MongoDbUrl     string   `env:"MONGODB_URL"`
 }
 
 // Player struct
@@ -62,6 +66,9 @@ func loadPlayerTags(filePath string) ([]string, error) {
 	}
 
 	for _, player := range players {
+		// if len(playerTags) >= 100000 {
+		// 	break
+		// }
 		playerTags = append(playerTags, player.Tag)
 	}
 
@@ -92,6 +99,7 @@ func fetchPlayerData(
 	tags <-chan string,
 	wg *sync.WaitGroup,
 	redisClient *redis.Client,
+	models *[]mongo.WriteModel,
 	apiKeys []string,
 	successRequestCount *int64,
 	notFoundRequestCount *int64,
@@ -126,8 +134,47 @@ func fetchPlayerData(
 				log.Fatal("Error parsing response: ", err)
 			}
 
+			val, _ := redisClient.Get(ctx, playerData.Tag).Result()
+			if val != "" && playerData.Trophies >= 5000 {
+				var cached PlayerStruct
+				if err := json.Unmarshal([]byte(val), &cached); err != nil {
+					log.Fatal("Error parsing response: ", err)
+				}
+
+				if cached.Trophies != playerData.Trophies {
+					_setOnInsert := bson.D{{Key: "initial", Value: cached.Trophies}, {Key: "final", Value: cached.Trophies}}
+					_set := bson.D{{Key: "name", Value: playerData.Name}, {Key: "trophies", Value: playerData.Trophies}}
+					_push := bson.D{
+						{
+							Key: "attacks",
+							Value: bson.D{
+								{Key: "timestamp", Value: time.Now().UnixMilli()},
+								{Key: "initial", Value: cached.Trophies},
+								{Key: "last", Value: playerData.Trophies},
+								{Key: "gain", Value: playerData.Trophies - cached.Trophies},
+							},
+						},
+					}
+
+					*models = append(
+						*models,
+						mongo.NewUpdateOneModel().
+							SetFilter(bson.D{{Key: "tag", Value: cached.Tag}}).
+							SetUpdate(
+								bson.D{
+									{Key: "$set", Value: _set},
+									{Key: "$push", Value: _push},
+									{Key: "$setOnInsert", Value: _setOnInsert},
+								},
+							).
+							SetUpsert(true),
+					)
+					log.Printf("Player %v made a new attack. From %v to %v (%v) [%v]", playerData.Name, cached.Trophies, playerData.Trophies, playerData.Trophies-cached.Trophies, playerData.AttackWins-cached.AttackWins)
+				}
+			}
+
 			playerDataJSON, _ := json.Marshal(playerData)
-			_, err = redisClient.Set(ctx, playerData.Tag, playerDataJSON, 0).Result()
+			err = redisClient.Set(ctx, playerData.Tag, playerDataJSON, 0).Err()
 			if err != nil {
 				log.Printf("Redis error setting data for tag %s: %v", tag, err)
 			}
@@ -206,11 +253,13 @@ func main() {
 		notFoundRequestCount  int64
 		throttledRequestCount int64
 	)
+	models := []mongo.WriteModel{}
 
 	redis := redis.NewClient(&redis.Options{
 		Addr: config.RedisURL,
 		DB:   0,
 	})
+	mongo := MongoClient(config.MongoDbUrl)
 
 	client := &http.Client{
 		Timeout: time.Second * 10,
@@ -225,6 +274,7 @@ func main() {
 			playerTagsChunk,
 			workerGroup,
 			redis,
+			&models,
 			config.COCApiKeys,
 			&successRequestCount,
 			&notFoundRequestCount,
@@ -233,6 +283,19 @@ func main() {
 	}
 
 	workerGroup.Wait()
+
+	mongoStart := time.Now()
+	log.Printf("Bulk inserting %v items", len(models))
+
+	if len(models) > 0 {
+		opts := options.BulkWrite().SetOrdered(false)
+		collection := mongo.Database("db").Collection("legend_attacks")
+		_, bulkErr := collection.BulkWrite(context.TODO(), models, opts)
+		if bulkErr != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Bulk inserted %v", time.Since(mongoStart))
+	}
 
 	elapsed := time.Since(start)
 	log.Printf("Total success requests: %d", successRequestCount)

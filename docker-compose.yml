@@ -1,0 +1,16 @@
+version: "3.6"
+
+services:
+  redis-stack:
+    container_name: redis-stack
+    image: redis/redis-stack-server:latest
+    restart: always
+    mem_limit: '2g'
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - 'redis-data-volume:/data'
+
+volumes:
+  redis-data-volume:
+    name: redis-data-volume
