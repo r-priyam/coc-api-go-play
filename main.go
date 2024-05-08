@@ -118,7 +118,7 @@ func fetchPlayerData(
 	processID := os.Getpid()
 	log.Printf("Worker %d started with process ID: %d", workerNumber, processID)
 
-	var models = []mongo.WriteModel{}
+	models := []mongo.WriteModel{}
 	apiKeyIndex := workerNumber
 
 	for tag := range tags {
