@@ -13,7 +13,6 @@ import (
 	"runtime/pprof"
 	"runtime/trace"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -300,24 +299,21 @@ func main() {
 		loopIndex int64
 	)
 
-	ctx, cancel := signal.NotifyContext(
-		context.Background(),
-		syscall.SIGINT,
-		syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background())
 	defer cancel()
 
 	for true {
-		select {
-		case <-ctx.Done():
-			log.Println("Shutdown signal received, exiting...")
-			break
-		default:
-			start := time.Now()
-			workerGroup := &sync.WaitGroup{}
-			for _, playerTagChunk := range playerTagChunks {
+		start := time.Now()
+		workerGroup := &sync.WaitGroup{}
+		for _, playerTagChunk := range playerTagChunks {
+			select {
+			case <-ctx.Done():
+				log.Println("Received stop signal. Exiting...")
+				break
+			default:
 				workerGroup.Add(config.Workers)
-
 				playerTagsChunk := make(chan string, len(playerTagChunk))
+
 				for _, tag := range playerTagChunk {
 					playerTagsChunk <- tag
 				}
@@ -344,14 +340,14 @@ func main() {
 				workerGroup.Wait()
 				loopIndex++
 			}
-
-			elapsed := time.Since(start)
-			log.Printf("Total success requests: %d", successRequestCount)
-			log.Printf("Total not found requests: %d", notFoundRequestCount)
-			log.Printf("Total throttled requests: %d", throttledRequestCount)
-			log.Printf("Total time taken: %s", elapsed)
-
-			time.Sleep(time.Second * 5) // sleep for 5 sec
 		}
+
+		elapsed := time.Since(start)
+		log.Printf("Total success requests: %d", successRequestCount)
+		log.Printf("Total not found requests: %d", notFoundRequestCount)
+		log.Printf("Total throttled requests: %d", throttledRequestCount)
+		log.Printf("Total time taken: %s", elapsed)
+
+		time.Sleep(time.Second * 5) // sleep for 5 sec
 	}
 }
