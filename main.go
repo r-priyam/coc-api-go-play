@@ -311,9 +311,8 @@ func main() {
 			)
 		}
 
+		workerGroup.Wait()
 	}
-
-	workerGroup.Wait()
 
 	elapsed := time.Since(start)
 	log.Printf("Total success requests: %d", successRequestCount)
