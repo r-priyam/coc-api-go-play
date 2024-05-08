@@ -332,7 +332,7 @@ func main() {
 			}
 
 			workerGroup.Wait()
-			loopIndex += 1
+			loopIndex++
 		}
 
 		elapsed := time.Since(start)
