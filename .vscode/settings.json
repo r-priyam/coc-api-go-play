@@ -1,11 +1,19 @@
 {
+	"editor.tabSize": 4,
+	"editor.useTabStops": false,
+	"editor.insertSpaces": false,
+	"editor.detectIndentation": true,
   "editor.formatOnSave": true,
-  "editor.codeActionsOnSave": { "source.organizeImports": "explicit" },
-  "editor.tabSize": 2,
-  "editor.detectIndentation": false,
-  "editor.insertSpaces": false,
-  "jest.runMode": "on-demand",
-  "[go]": {
-    "editor.defaultFormatter": "golang.go"
-  }
+	"editor.codeActionsOnSave": { "source.organizeImports": "explicit" },
+	"files.eol": "\n",
+	"go.useLanguageServer": true,
+	"go.lintOnSave": "file",
+	"go.formatTool": "gofumpt",
+	"gopls": {
+			"formatting.gofumpt": true,
+	},
+	"go.lintTool": "revive",
+	"go.lintFlags": [
+			"-config=${workspaceFolder}/revive.toml"
+	]
 }
