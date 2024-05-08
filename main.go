@@ -118,7 +118,7 @@ func fetchPlayerData(
 	processID := os.Getpid()
 	log.Printf("Worker %d started with process ID: %d", workerNumber, processID)
 
-	var models = []mongo.WriteModel{}
+	models := []mongo.WriteModel{}
 	apiKeyIndex := workerNumber
 
 	for tag := range tags {
@@ -156,8 +156,15 @@ func fetchPlayerData(
 				}
 
 				if cached.Trophies != playerData.Trophies {
-					_setOnInsert := bson.D{{Key: "initial", Value: cached.Trophies}, {Key: "final", Value: cached.Trophies}}
-					_set := bson.D{{Key: "name", Value: playerData.Name}, {Key: "trophies", Value: playerData.Trophies}}
+					_setOnInsert := bson.D{
+						{Key: "initial", Value: cached.Trophies},
+						{Key: "final", Value: cached.Trophies},
+					}
+					_set := bson.D{
+						{Key: "name", Value: playerData.Name},
+						{Key: "trophies", Value: playerData.Trophies},
+					}
+
 					_push := bson.D{
 						{
 							Key: "attacks",
@@ -278,7 +285,15 @@ func main() {
 		Addr: config.RedisURL,
 		DB:   0,
 	})
-	mongo := MongoClient(config.MongoDbURL)
+	mongo, err := mongo.Connect(
+		context.TODO(),
+		options.Client().
+			ApplyURI(config.MongoDbURL).
+			SetServerAPIOptions(options.ServerAPI(options.ServerAPIVersion1)),
+	)
+	if err != nil {
+		log.Fatal("Failed to connect to MongoDB")
+	}
 
 	client := &http.Client{
 		Timeout: time.Second * 10,
