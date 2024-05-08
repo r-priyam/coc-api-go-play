@@ -101,10 +101,11 @@ func getIncrementalAPIKey(apiKeys []string, apiKeyIndex *int) string {
 	return apiKey
 }
 
-func fetchPlayerData(
+func fetchPlayer(
 	ctx context.Context,
 	client *http.Client,
 	workerNumber int,
+	loopIndex int,
 	tags <-chan string,
 	wg *sync.WaitGroup,
 	redisClient *redis.Client,
@@ -139,30 +140,30 @@ func fetchPlayerData(
 				log.Fatal("Error reading response body: ", err)
 			}
 
-			var playerData PlayerStruct
-			if err := json.Unmarshal(body, &playerData); err != nil {
+			var player PlayerStruct
+			if err := json.Unmarshal(body, &player); err != nil {
 				log.Fatal("Error parsing response: ", err)
 			}
 
-			val, err := redisClient.Get(ctx, playerData.Tag).Result()
+			value, err := redisClient.Get(ctx, player.Tag).Result()
 			if err != nil && err != redis.Nil {
 				log.Printf("Redis error getting data for tag %s: %v", tag, err)
 			}
 
-			if val != "" && playerData.Trophies >= 5000 {
+			if value != "" && player.Trophies >= 5000 {
 				var cached PlayerStruct
-				if err := json.Unmarshal([]byte(val), &cached); err != nil {
+				if err := json.Unmarshal([]byte(value), &cached); err != nil {
 					log.Fatal("Error parsing response: ", err)
 				}
 
-				if cached.Trophies != playerData.Trophies {
+				if cached.Trophies != player.Trophies {
 					_setOnInsert := bson.D{
 						{Key: "initial", Value: cached.Trophies},
 						{Key: "final", Value: cached.Trophies},
 					}
 					_set := bson.D{
-						{Key: "name", Value: playerData.Name},
-						{Key: "trophies", Value: playerData.Trophies},
+						{Key: "name", Value: player.Name},
+						{Key: "trophies", Value: player.Trophies},
 					}
 
 					_push := bson.D{
@@ -171,8 +172,8 @@ func fetchPlayerData(
 							Value: bson.D{
 								{Key: "timestamp", Value: time.Now().UnixMilli()},
 								{Key: "initial", Value: cached.Trophies},
-								{Key: "last", Value: playerData.Trophies},
-								{Key: "gain", Value: playerData.Trophies - cached.Trophies},
+								{Key: "last", Value: player.Trophies},
+								{Key: "gain", Value: player.Trophies - cached.Trophies},
 							},
 						},
 					}
@@ -190,12 +191,12 @@ func fetchPlayerData(
 							).
 							SetUpsert(true),
 					)
-					log.Printf("Player %v made a new attack. From %v to %v (%v) [%v]", playerData.Name, cached.Trophies, playerData.Trophies, playerData.Trophies-cached.Trophies, playerData.AttackWins-cached.AttackWins)
+					log.Printf("[LOOP %v] Player %v made a new attack. From %v to %v (%v) [%v]", loopIndex, player.Name, cached.Trophies, player.Trophies, player.Trophies-cached.Trophies, player.AttackWins-cached.AttackWins)
 				}
 			}
 
-			playerDataJSON, _ := json.Marshal(playerData)
-			err = redisClient.Set(ctx, playerData.Tag, playerDataJSON, 0).Err()
+			playerJSON, _ := json.Marshal(player)
+			err = redisClient.Set(ctx, player.Tag, playerJSON, 0).Err()
 			if err != nil {
 				log.Printf("Redis error setting data for tag %s: %v", tag, err)
 			}
@@ -210,10 +211,10 @@ func fetchPlayerData(
 		}
 	}
 
-	mongoStart := time.Now()
-	log.Printf("Bulk inserting %v items", len(models))
-
 	if len(models) > 0 {
+		mongoStart := time.Now()
+		log.Printf("[LOOP %v] Bulk inserting %v items", loopIndex, len(models))
+
 		opts := options.BulkWrite().SetOrdered(false)
 		collection := mongoClient.Database("db").Collection("legend_attacks")
 
@@ -222,7 +223,7 @@ func fetchPlayerData(
 		if bulkErr != nil {
 			log.Fatal(bulkErr)
 		}
-		log.Printf("Bulk inserted in %v", time.Since(mongoStart))
+		log.Printf("[LOOP %v] Bulk inserted in %v", loopIndex, time.Since(mongoStart))
 	}
 }
 
@@ -285,7 +286,7 @@ func main() {
 		Addr: config.RedisURL,
 		DB:   0,
 	})
-	mongo, err := mongo.Connect(
+	mongodb, err := mongo.Connect(
 		context.TODO(),
 		options.Client().
 			ApplyURI(config.MongoDbURL).
@@ -299,39 +300,47 @@ func main() {
 		Timeout: time.Second * 10,
 	}
 
-	workerGroup := &sync.WaitGroup{}
-	for _, playerTagChunk := range playerTagChunks {
-		workerGroup.Add(config.Workers)
+	loopIndex := 0
 
-		playerTagsChunk := make(chan string, len(playerTagChunk))
-		for _, tag := range playerTagChunk {
-			playerTagsChunk <- tag
+	for {
+		workerGroup := &sync.WaitGroup{}
+		for _, playerTagChunk := range playerTagChunks {
+			workerGroup.Add(config.Workers)
+
+			playerTagsChunk := make(chan string, len(playerTagChunk))
+			for _, tag := range playerTagChunk {
+				playerTagsChunk <- tag
+			}
+			close(playerTagsChunk)
+
+			for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
+				log.Printf("[LOOP %v] Starting worker %d", loopIndex, workerNumber)
+				go fetchPlayer(
+					ctx,
+					client,
+					workerNumber,
+					loopIndex,
+					playerTagsChunk,
+					workerGroup,
+					redis,
+					mongodb,
+					config.COCApiKeys,
+					&successRequestCount,
+					&notFoundRequestCount,
+					&throttledRequestCount,
+				)
+			}
+
+			workerGroup.Wait()
+			loopIndex++
 		}
-		close(playerTagsChunk)
 
-		for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
-			log.Printf("Starting worker %d", workerNumber)
-			go fetchPlayerData(
-				ctx,
-				client,
-				workerNumber,
-				playerTagsChunk,
-				workerGroup,
-				redis,
-				mongo,
-				config.COCApiKeys,
-				&successRequestCount,
-				&notFoundRequestCount,
-				&throttledRequestCount,
-			)
-		}
+		elapsed := time.Since(start)
+		log.Printf("Total success requests: %d", successRequestCount)
+		log.Printf("Total not found requests: %d", notFoundRequestCount)
+		log.Printf("Total throttled requests: %d", throttledRequestCount)
+		log.Printf("Total time taken: %s", elapsed)
 
-		workerGroup.Wait()
+		time.Sleep(time.Second * 5) // sleep for 5 sec; you deserve a power nap
 	}
-
-	elapsed := time.Since(start)
-	log.Printf("Total success requests: %d", successRequestCount)
-	log.Printf("Total not found requests: %d", notFoundRequestCount)
-	log.Printf("Total throttled requests: %d", throttledRequestCount)
-	log.Printf("Total time taken: %s", elapsed)
 }

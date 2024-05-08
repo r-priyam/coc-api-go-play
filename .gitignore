@@ -23,4 +23,5 @@ go.work
 # Ignore env file
 *.env
 
-*.json
+*.players.json
+!.vscode
