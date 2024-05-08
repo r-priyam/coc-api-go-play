@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
 	"runtime/pprof"
 	"runtime/trace"
 	"sync"
@@ -62,7 +61,7 @@ func loadPlayerTagChunks(filePath string) ([][]string, error) {
 		playerTagChunks [][]string
 	)
 
-	const chunkSize = 50000
+	const chunkSize = 500
 
 	err = json.Unmarshal(byteValue, &players)
 	if err != nil {
@@ -286,6 +285,7 @@ func main() {
 	}
 
 	var (
+		ctx                   = context.Background()
 		successRequestCount   int64
 		notFoundRequestCount  int64
 		throttledRequestCount int64
@@ -299,47 +299,40 @@ func main() {
 		loopIndex int64
 	)
 
-	ctx, cancel := signal.NotifyContext(context.Background())
-	defer cancel()
-
 	for true {
 		start := time.Now()
 		workerGroup := &sync.WaitGroup{}
+
 		for _, playerTagChunk := range playerTagChunks {
-			select {
-			case <-ctx.Done():
-				log.Println("Received stop signal. Exiting...")
-				break
-			default:
-				workerGroup.Add(config.Workers)
-				playerTagsChunk := make(chan string, len(playerTagChunk))
+			workerGroup.Add(config.Workers)
+			playerTagsChunk := make(chan string, len(playerTagChunk))
 
-				for _, tag := range playerTagChunk {
-					playerTagsChunk <- tag
-				}
-				close(playerTagsChunk)
-
-				for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
-					log.Printf("[LOOP %v] Starting worker %d", loopIndex, workerNumber)
-					go fetchPlayer(
-						ctx,
-						clashClient,
-						workerNumber,
-						&loopIndex,
-						playerTagsChunk,
-						workerGroup,
-						redis,
-						mongodb,
-						config.COCApiKeys,
-						&successRequestCount,
-						&notFoundRequestCount,
-						&throttledRequestCount,
-					)
-				}
-
-				workerGroup.Wait()
-				loopIndex++
+			for _, tag := range playerTagChunk {
+				log.Print(tag)
+				playerTagsChunk <- tag
 			}
+			close(playerTagsChunk)
+
+			for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
+				log.Printf("[LOOP %v] Starting worker %d", loopIndex, workerNumber)
+				go fetchPlayer(
+					ctx,
+					clashClient,
+					workerNumber,
+					&loopIndex,
+					playerTagsChunk,
+					workerGroup,
+					redis,
+					mongodb,
+					config.COCApiKeys,
+					&successRequestCount,
+					&notFoundRequestCount,
+					&throttledRequestCount,
+				)
+			}
+
+			workerGroup.Wait()
+			loopIndex++
 		}
 
 		elapsed := time.Since(start)
