@@ -300,9 +300,9 @@ func main() {
 		Timeout: time.Second * 10,
 	}
 
-	loopIndex := 0
+	loopIndex := 1
 
-	for {
+	for true {
 		workerGroup := &sync.WaitGroup{}
 		for _, playerTagChunk := range playerTagChunks {
 			workerGroup.Add(config.Workers)
