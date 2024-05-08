@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"runtime/pprof"
 	"runtime/trace"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -105,7 +107,7 @@ func fetchPlayer(
 	ctx context.Context,
 	client *http.Client,
 	workerNumber int,
-	loopIndex int,
+	loopIndex *int64,
 	tags <-chan string,
 	wg *sync.WaitGroup,
 	redisClient *redis.Client,
@@ -274,18 +276,6 @@ func main() {
 	}
 	log.Print("Player tags loaded successfully.")
 
-	start := time.Now()
-	var (
-		ctx                   = context.Background()
-		successRequestCount   int64
-		notFoundRequestCount  int64
-		throttledRequestCount int64
-	)
-
-	redis := redis.NewClient(&redis.Options{
-		Addr: config.RedisURL,
-		DB:   0,
-	})
 	mongodb, err := mongo.Connect(
 		context.TODO(),
 		options.Client().
@@ -296,51 +286,72 @@ func main() {
 		log.Fatal("Failed to connect to MongoDB")
 	}
 
-	client := &http.Client{
-		Timeout: time.Second * 10,
-	}
+	var (
+		successRequestCount   int64
+		notFoundRequestCount  int64
+		throttledRequestCount int64
+		redis                 = redis.NewClient(&redis.Options{
+			Addr: config.RedisURL,
+			DB:   0,
+		})
+		clashClient = &http.Client{
+			Timeout: time.Second * 10,
+		}
+		loopIndex int64
+	)
 
-	loopIndex := 1
+	ctx, cancel := signal.NotifyContext(
+		context.Background(),
+		syscall.SIGINT,
+		syscall.SIGTERM)
+	defer cancel()
 
 	for true {
-		workerGroup := &sync.WaitGroup{}
-		for _, playerTagChunk := range playerTagChunks {
-			workerGroup.Add(config.Workers)
+		select {
+		case <-ctx.Done():
+			log.Println("Shutdown signal received, exiting...")
+			break
+		default:
+			start := time.Now()
+			workerGroup := &sync.WaitGroup{}
+			for _, playerTagChunk := range playerTagChunks {
+				workerGroup.Add(config.Workers)
 
-			playerTagsChunk := make(chan string, len(playerTagChunk))
-			for _, tag := range playerTagChunk {
-				playerTagsChunk <- tag
+				playerTagsChunk := make(chan string, len(playerTagChunk))
+				for _, tag := range playerTagChunk {
+					playerTagsChunk <- tag
+				}
+				close(playerTagsChunk)
+
+				for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
+					log.Printf("[LOOP %v] Starting worker %d", loopIndex, workerNumber)
+					go fetchPlayer(
+						ctx,
+						clashClient,
+						workerNumber,
+						&loopIndex,
+						playerTagsChunk,
+						workerGroup,
+						redis,
+						mongodb,
+						config.COCApiKeys,
+						&successRequestCount,
+						&notFoundRequestCount,
+						&throttledRequestCount,
+					)
+				}
+
+				workerGroup.Wait()
+				loopIndex++
 			}
-			close(playerTagsChunk)
 
-			for workerNumber := 0; workerNumber < config.Workers; workerNumber++ {
-				log.Printf("[LOOP %v] Starting worker %d", loopIndex, workerNumber)
-				go fetchPlayer(
-					ctx,
-					client,
-					workerNumber,
-					loopIndex,
-					playerTagsChunk,
-					workerGroup,
-					redis,
-					mongodb,
-					config.COCApiKeys,
-					&successRequestCount,
-					&notFoundRequestCount,
-					&throttledRequestCount,
-				)
-			}
+			elapsed := time.Since(start)
+			log.Printf("Total success requests: %d", successRequestCount)
+			log.Printf("Total not found requests: %d", notFoundRequestCount)
+			log.Printf("Total throttled requests: %d", throttledRequestCount)
+			log.Printf("Total time taken: %s", elapsed)
 
-			workerGroup.Wait()
-			loopIndex++
+			time.Sleep(time.Second * 5) // sleep for 5 sec
 		}
-
-		elapsed := time.Since(start)
-		log.Printf("Total success requests: %d", successRequestCount)
-		log.Printf("Total not found requests: %d", notFoundRequestCount)
-		log.Printf("Total throttled requests: %d", throttledRequestCount)
-		log.Printf("Total time taken: %s", elapsed)
-
-		time.Sleep(time.Second * 5) // sleep for 5 sec; you deserve a power nap
 	}
 }
