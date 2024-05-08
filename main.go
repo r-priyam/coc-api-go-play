@@ -156,8 +156,15 @@ func fetchPlayerData(
 				}
 
 				if cached.Trophies != playerData.Trophies {
-					_setOnInsert := bson.D{{Key: "initial", Value: cached.Trophies}, {Key: "final", Value: cached.Trophies}}
-					_set := bson.D{{Key: "name", Value: playerData.Name}, {Key: "trophies", Value: playerData.Trophies}}
+					_setOnInsert := bson.D{
+						{Key: "initial", Value: cached.Trophies},
+						{Key: "final", Value: cached.Trophies},
+					}
+					_set := bson.D{
+						{Key: "name", Value: playerData.Name},
+						{Key: "trophies", Value: playerData.Trophies},
+					}
+
 					_push := bson.D{
 						{
 							Key: "attacks",
