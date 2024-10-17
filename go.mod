@@ -6,7 +6,7 @@ require (
 	github.com/caarlos0/env/v11 v11.0.0
 	github.com/goccy/go-json v0.10.2
 	github.com/joho/godotenv v1.5.1
-	github.com/redis/go-redis/v9 v9.5.1
+	github.com/redis/go-redis/v9 v9.7.0
 	go.mongodb.org/mongo-driver v1.15.0
 )
 
