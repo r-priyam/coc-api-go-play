@@ -1,9 +1,9 @@
 module coc-benchmark
 
-go 1.22.2
+go 1.26.0
 
 require (
-	github.com/caarlos0/env/v11 v11.0.0
+	github.com/caarlos0/env/v11 v11.4.2
 	github.com/goccy/go-json v0.10.2
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.5.1
